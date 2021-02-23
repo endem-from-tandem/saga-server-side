@@ -1,19 +1,8 @@
 const { Router } = require('express')
-const config = require('config')
-
-/*
-  express
-  mongoose - mongoDB api
-  bcrypjs - hash password and check isMatch(password/hashed)
-  express-validator
-*/
-
 const bcrypt = require('bcryptjs')
-const { check, validationResult } = require('express-validator')
-
+const config = require('config')
 const jwt = require('jsonwebtoken')
-const JWT_SECRET = config.get('jwt-secret')
-
+const { check, validationResult } = require('express-validator')
 const User = require('../models/User')
 const router = Router()
 
@@ -21,30 +10,40 @@ const router = Router()
 router.post(
   '/sign-up',
   [
-    check('email', 'Bad email').isEmail(),
-    check('password', 'Bad password').isLength({ min: 6 }),
+    check('email', 'Некорректный email').isEmail(),
+    check('password', 'Минимальная длина пароля 6 символов').isLength({
+      min: 6,
+    }),
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req)
-      if (errors.isEmpty()) {
+
+      if (!errors.isEmpty()) {
         return res.status(400).json({
           errors: errors.array(),
-          message: 'Bad sign-up data',
+          message: errors.array()[0].msg,
         })
       }
-      const { email, password } = req.body
+
+      const { email, password, name, lastname } = req.body
+
       const candidate = await User.findOne({ email })
+
       if (candidate) {
-        res.status(400).json({ message: 'user is already registered ' })
+        return res
+          .status(400)
+          .json({ message: 'Такой пользователь уже существует' })
       }
+
       const hashedPassword = await bcrypt.hash(password, 12)
-      const user = new User({ email, password: hashedPassword })
+      const user = new User({ email, password: hashedPassword, name, lastname })
+
       await user.save()
-      // 201 -create status
-      res.status(201).json({ message: 'User created' })
+
+      res.status(201).json({ message: 'Пользователь создан' })
     } catch (e) {
-      res.status(500).json({ message: 'Something wrong.. Try again.' })
+      res.status(500).json({ message: 'Что-то пошло не так, попробуйте снова' })
     }
   }
 )
@@ -53,45 +52,46 @@ router.post(
 router.post(
   '/sign-in',
   [
-    check('email', 'Bad email')
+    check('email', 'Введите корректный email')
       .normalizeEmail({ gmail_remove_dots: false })
       .isEmail(),
-    check('password', 'password is exist').exists(),
+    check('password', 'Введите пароль').exists(),
   ],
   async (req, res) => {
     try {
       const errors = validationResult(req)
-      if (errors.isEmpty()) {
+      if (!errors.isEmpty()) {
         return res.status(400).json({
           errors: errors.array(),
-          message: 'Bad sign-in data',
+          message: 'Некорректный данные при входе в систему',
         })
       }
 
       const { email, password } = req.body
 
       const user = await User.findOne({ email })
+
       if (!user) {
-        return res.status(400).json({ message: 'User not found' })
+        return res.status(400).json({ message: 'Пользователь не найден' })
       }
-      // check passwords is Match
+
       const isMatch = await bcrypt.compare(password, user.password)
+
       if (!isMatch) {
-        return res.status(400).json({
-          // ? bad practice is say user what is wrong.
-          message: 'wrong password',
-        })
+        return res
+          .status(400)
+          .json({ message: 'Неверный пароль, попробуйте снова' })
       }
-      const token = jwt.sign(
-        { userId: user.id, userEmail: user.email },
-        JWT_SECRET,
-        { expiresIn: '1h' } // token end work after 1h
-      )
-      //default status 200
+
+      const token = jwt.sign({ userId: user.id }, config.get('jwt-secret'), {
+        expiresIn: '1h',
+      })
+
       res.json({ token, userId: user.id })
     } catch (e) {
-      res.status(500)
+      res.status(500).json({ message: 'Что-то пошло не так, попробуйте снова' })
     }
   }
 )
+
 module.exports = router
